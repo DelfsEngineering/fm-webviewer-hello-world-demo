@@ -7,6 +7,22 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@vuepic/vue-datepicker@11.0.2/dist/vue-datepicker.iife.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/@vuepic/vue-datepicker@11.0.2/dist/style.css">
+    <!-- Fallback CDN -->
+    <script>
+        if (typeof VueDatePicker === 'undefined') {
+            console.log('VueDatePicker not loaded from primary CDN, trying fallback...');
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@vuepic/vue-datepicker@11.0.2/dist/vue-datepicker.iife.js';
+            script.onload = function() {
+                console.log('VueDatePicker loaded from fallback CDN');
+            };
+            script.onerror = function() {
+                console.error('Failed to load VueDatePicker from fallback CDN');
+            };
+            document.head.appendChild(script);
+        }
+    </script>
     <script>
         tailwind.config = {
             theme: {
@@ -28,6 +44,8 @@
                 }
             }
         }
+        
+
     </script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center p-4">
@@ -40,12 +58,44 @@
             <div class="mb-8 p-6 bg-gray-50 rounded-xl">
                 <h2 class="text-xl font-semibold text-gray-700 mb-4">Select Date Range</h2>
                 <div class="flex justify-center mb-4">
-                    <vue-datepicker 
+                    <!-- Temporary HTML date inputs for testing -->
+                    <div class="flex gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                            <input 
+                                type="date" 
+                                v-model="startDateInput"
+                                @change="updateDateRangeFromInputs"
+                                class="px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                            <input 
+                                type="date" 
+                                v-model="endDateInput"
+                                @change="updateDateRangeFromInputs"
+                                class="px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                            />
+                        </div>
+                    </div>
+                    
+                    <!-- Vue DatePicker (commented out for now) -->
+                    <!--
+                    <VueDatePicker 
                         v-model="dateRange" 
                         range 
-                        multi-calendars 
                         class="w-full max-w-2xl"
+                        @click="testDatePicker"
                     />
+                    -->
+                    
+                    <button 
+                        @click="testDatePicker"
+                        class="ml-4 px-4 py-2 bg-blue-500 text-white rounded-lg"
+                    >
+                        Test Date Picker
+                    </button>
                 </div>
                 <div class="flex items-center justify-center gap-4">
                     <button 
@@ -53,6 +103,12 @@
                         class="px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors duration-200"
                     >
                         Set 7-Day Range
+                    </button>
+                    <button 
+                        @click="validateDateRange"
+                        class="px-4 py-2 bg-orange-600 text-white font-medium rounded-lg hover:bg-orange-700 transition-colors duration-200"
+                    >
+                        Fix Date Range
                     </button>
                     <button 
                         @click="sendDateRangeToFileMaker"
@@ -128,8 +184,13 @@
     <script>
         const { createApp } = Vue;
         
+        console.log('Vue available:', typeof Vue);
+        console.log('VueDatePicker available:', typeof VueDatePicker);
+        console.log('VueDatePicker object:', VueDatePicker);
+        
         createApp({
             components: {
+                'VueDatePicker': VueDatePicker,
                 'vue-datepicker': VueDatePicker
             },
             
@@ -138,6 +199,8 @@
                     filemakerData: '',
                     messageInput: '',
                     dateRange: null,
+                    startDateInput: '',
+                    endDateInput: '',
                     showStatus: false,
                     statusMessage: '',
                     statusType: 'success',
@@ -158,7 +221,12 @@
             },
             
             mounted() {
+                console.log('Vue app mounted');
+                console.log('VueDatePicker component available:', typeof VueDatePicker);
+                console.log('Components registered:', this.$options.components);
+                
                 this.setDefaultRange();
+                this.validateDateRange(); // Validate the date range after setting it
                 this.startFileMakerDetection();
                 this.$nextTick(() => {
                     // Focus on input field
@@ -328,6 +396,13 @@
                     const startDate = new Date();
                     const endDate = new Date(new Date().setDate(startDate.getDate() + 7));
                     this.dateRange = [startDate, endDate];
+                    
+                    // Also set the HTML input values
+                    this.startDateInput = this.formatDateForInput(startDate);
+                    this.endDateInput = this.formatDateForInput(endDate);
+                    
+                    console.log('Default date range set:', this.dateRange);
+                    console.log('Start date:', startDate, 'End date:', endDate);
                 },
 
                 // Function to calculate duration in days
@@ -340,6 +415,46 @@
                     const diffTime = Math.abs(end - start);
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                     return diffDays;
+                },
+                
+                // Function to validate and fix corrupted date range
+                validateDateRange() {
+                    if (!this.dateRange || !Array.isArray(this.dateRange) || this.dateRange.length !== 2) {
+                        console.warn('Date range is corrupted, resetting to default');
+                        this.setDefaultRange();
+                        return false;
+                    }
+                    
+                    const [start, end] = this.dateRange;
+                    if (!(start instanceof Date) || !(end instanceof Date) || 
+                        isNaN(start.getTime()) || isNaN(end.getTime())) {
+                        console.warn('Date range contains invalid dates, resetting to default');
+                        this.setDefaultRange();
+                        return false;
+                    }
+                    
+                    return true;
+                },
+                
+                // Test method to debug date picker
+                testDatePicker() {
+                    console.log('Date picker clicked');
+                    console.log('Current dateRange:', this.dateRange);
+                    console.log('VueDatePicker component:', this.$refs.datePicker);
+                    this.showStatusMessage('Date picker test clicked', 'success');
+                },
+                
+                // Update date range from HTML date inputs
+                updateDateRangeFromInputs() {
+                    if (this.startDateInput && this.endDateInput) {
+                        const startDate = new Date(this.startDateInput);
+                        const endDate = new Date(this.endDateInput);
+                        
+                        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                            this.dateRange = [startDate, endDate];
+                            console.log('Date range updated from inputs:', this.dateRange);
+                        }
+                    }
                 },
                 
                 // Check if we're running in FileMaker
