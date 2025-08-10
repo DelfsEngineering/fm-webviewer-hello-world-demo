@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FileMaker Hello World Widget</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@vuepic/vue-datepicker@11.0.2/dist/vue-datepicker.iife.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-in-out',
+                        'fade-out': 'fadeOut 0.5s ease-in-out'
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(-10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' }
+                        },
+                        fadeOut: {
+                            '0%': { opacity: '1', transform: 'translateY(0)' },
+                            '100%': { opacity: '0', transform: 'translateY(-10px)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center p-4">
+    <div id="app" class="w-full max-w-4xl">
+        <!-- Main Widget Container -->
+        <div class="bg-white rounded-2xl shadow-2xl p-8 text-center">
+            <h1 class="text-4xl font-bold text-gray-800 mb-6">{{ helloText }}</h1>
+            
+            <!-- Date Picker Section -->
+            <div class="mb-8 p-6 bg-gray-50 rounded-xl">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Select Date Range</h2>
+                <div class="flex justify-center mb-4">
+                    <vue-datepicker 
+                        v-model="dateRange" 
+                        range 
+                        multi-calendars 
+                        class="w-full max-w-2xl"
+                    />
+                </div>
+                <div class="flex items-center justify-center gap-4">
+                    <button 
+                        @click="setDefaultRange"
+                        class="px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition-colors duration-200"
+                    >
+                        Set 7-Day Range
+                    </button>
+                    <button 
+                        @click="sendDateRangeToFileMaker"
+                        :disabled="!dateRange || !dateRange[0] || !dateRange[1]"
+                        class="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200"
+                    >
+                        Send Date Range
+                    </button>
+                </div>
+                <div v-if="dateRange && dateRange[0] && dateRange[1]" class="mt-3 text-sm text-gray-600">
+                    Selected: {{ formatDate(dateRange[0]) }} to {{ formatDate(dateRange[1]) }}
+                    <span class="block text-xs text-gray-500 mt-1">
+                        Duration: {{ calculateDuration() }} days
+                    </span>
+                </div>
+            </div>
+            
+            <!-- Message Input Section -->
+            <div class="mb-6">
+                <input 
+                    type="text" 
+                    v-model="messageInput"
+                    placeholder="Enter your message..."
+                    class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg transition-colors duration-200"
+                >
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="flex justify-center space-x-4">
+                <button 
+                    @click="sendToFileMaker"
+                    class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                >
+                    Send Message
+                </button>
+                <button 
+                    @click="updateHelloText"
+                    class="px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors duration-200"
+                >
+                    Update Text
+                </button>
+            </div>
+            
+            <!-- FileMaker Connection Status -->
+            <div class="mt-6 p-3 rounded-lg" :class="isFileMakerConnected ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'">
+                <span class="text-sm font-medium">
+                    {{ isFileMakerConnected ? '✅ Connected to FileMaker' : '⏳ Waiting for FileMaker...' }}
+                </span>
+            </div>
+            
+            <!-- Status Messages -->
+            <transition name="fade" mode="out-in">
+                <div 
+                    v-if="showStatus"
+                    :key="statusKey"
+                    :class="[
+                        'mt-4 p-4 rounded-lg font-medium',
+                        statusType === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    ]"
+                >
+                    {{ statusMessage }}
+                </div>
+            </transition>
+            
+            <!-- Received Data Display -->
+            <div v-if="receivedData" class="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h3 class="text-lg font-semibold text-blue-800 mb-2">Data from FileMaker:</h3>
+                <p class="text-blue-700">{{ receivedData }}</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        
+        createApp({
+            components: {
+                'vue-datepicker': VueDatePicker
+            },
+            
+            data() {
+                return {
+                    filemakerData: '',
+                    messageInput: '',
+                    dateRange: null,
+                    showStatus: false,
+                    statusMessage: '',
+                    statusType: 'success',
+                    statusKey: 0,
+                    isFileMakerConnected: false,
+                    fileMakerCheckInterval: null
+                };
+            },
+            
+            computed: {
+                helloText() {
+                    return this.filemakerData ? `Hello ${this.filemakerData}!` : 'Hello World!';
+                },
+                
+                receivedData() {
+                    return this.filemakerData;
+                }
+            },
+            
+            mounted() {
+                this.setDefaultRange();
+                this.startFileMakerDetection();
+                this.$nextTick(() => {
+                    // Focus on input field
+                    this.$el.querySelector('input').focus();
+                });
+                
+                // Make functions globally available for FileMaker
+                window.receiveFromFileMaker = this.receiveFromFileMaker;
+                window.sendToFileMaker = this.sendToFileMaker;
+                window.updateHelloText = this.updateHelloText;
+                window.receiveDateFromFileMaker = this.receiveDateFromFileMaker;
+            },
+            
+            unmounted() {
+                // Clean up the interval when component is destroyed
+                if (this.fileMakerCheckInterval) {
+                    clearInterval(this.fileMakerCheckInterval);
+                }
+            },
+            
+            methods: {
+                // Function to receive data from FileMaker
+                receiveFromFileMaker(data) {
+                    this.filemakerData = data;
+                    this.messageInput = data;
+                    this.updateHelloText();
+                    this.showStatusMessage(`Data received from FileMaker: ${data}`, 'success');
+                },
+                
+                // Function to receive date from FileMaker
+                receiveDateFromFileMaker(dateString) {
+                    try {
+                        console.log('Received date string from FileMaker:', dateString);
+                        
+                        // Check if it's a date range (comma-separated)
+                        if (dateString.includes(',')) {
+                            const [start, end] = dateString.split(',');
+                            console.log('Parsing date range - start:', start, 'end:', end);
+                            
+                            const startDate = new Date(start.trim());
+                            const endDate = new Date(end.trim());
+                            
+                            console.log('Parsed dates - startDate:', startDate, 'endDate:', endDate);
+                            
+                            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                                this.dateRange = [startDate, endDate];
+                                console.log('Date range set successfully:', this.dateRange);
+                                this.showStatusMessage(`Date range received from FileMaker: ${this.formatDate(startDate)} to ${this.formatDate(endDate)}`, 'success');
+                            } else {
+                                this.showStatusMessage(`Invalid date range received: ${dateString}`, 'error');
+                                console.error('Invalid dates - startDate valid:', !isNaN(startDate.getTime()), 'endDate valid:', !isNaN(endDate.getTime()));
+                            }
+                        } else {
+                            // Single date (backward compatibility)
+                            console.log('Parsing single date:', dateString);
+                            const date = new Date(dateString.trim());
+                            console.log('Parsed single date:', date);
+                            
+                            if (!isNaN(date.getTime())) {
+                                this.dateRange = [date, date];
+                                console.log('Single date set successfully:', this.dateRange);
+                                this.showStatusMessage(`Date received from FileMaker: ${this.formatDate(date)}`, 'success');
+                            } else {
+                                this.showStatusMessage(`Invalid date received: ${dateString}`, 'error');
+                                console.error('Invalid single date:', date);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error in receiveDateFromFileMaker:', error);
+                        this.showStatusMessage(`Error processing date: ${error.message}`, 'error');
+                    }
+                },
+                
+                // Function to update the hello text with received data
+                updateHelloText() {
+                    if (this.filemakerData) {
+                        this.messageInput = this.filemakerData;
+                    }
+                },
+                
+                // Function to send data back to FileMaker
+                sendToFileMaker() {
+                    if (!this.messageInput.trim()) {
+                        this.showStatusMessage('Please enter a message first', 'error');
+                        return;
+                    }
+                    
+                    try {
+                        // FileMaker integration - FileMaker.PerformScriptWithOption
+                        if (typeof FileMaker !== 'undefined' && typeof FileMaker.PerformScriptWithOption === 'function') {
+                            // Send the message to FileMaker
+                            FileMaker.PerformScriptWithOption('HandleWidgetMessage', this.messageInput, '0');
+                            this.showStatusMessage(`Message sent to FileMaker: ${this.messageInput}`, 'success');
+                        } else {
+                            // Fallback for testing outside FileMaker
+                            this.showStatusMessage(`FileMaker.PerformScriptWithOption not available (testing mode). Message: ${this.messageInput}`, 'success');
+                            console.log('FileMaker.PerformScriptWithOption called with:', this.messageInput);
+                        }
+                    } catch (error) {
+                        this.showStatusMessage(`Error sending to FileMaker: ${error.message}`, 'error');
+                        console.error('FileMaker integration error:', error);
+                    }
+                },
+                
+                // Function to send selected date range to FileMaker
+                sendDateRangeToFileMaker() {
+                    if (!this.dateRange || !this.dateRange[0] || !this.dateRange[1]) {
+                        this.showStatusMessage('Please select both start and end dates', 'error');
+                        return;
+                    }
+                    
+                    // Move these declarations outside the FileMaker integration block
+                    const startDate = this.formatDateForInput(this.dateRange[0]);
+                    const endDate = this.formatDateForInput(this.dateRange[1]);
+                    const dateString = `${startDate},${endDate}`;
+                    
+                    try {
+                        // FileMaker integration - FileMaker.PerformScriptWithOption
+                        if (typeof FileMaker !== 'undefined' && typeof FileMaker.PerformScriptWithOption === 'function') {
+                            // Send the date range to FileMaker
+                            FileMaker.PerformScriptWithOption('HandleDateRangeMessage', dateString, '0');
+                            this.showStatusMessage(`Date range sent to FileMaker: ${startDate} to ${endDate}`, 'success');
+                        } else {
+                            // Fallback for testing outside FileMaker
+                            this.showStatusMessage(`FileMaker.PerformScriptWithOption not available (testing mode). Date: ${startDate} to ${endDate}`, 'success');
+                            console.log('FileMaker.PerformScriptWithOption called with date range:', dateString);
+                        }
+                    } catch (error) {
+                        this.showStatusMessage(`Error sending date range to FileMaker: ${error.message}`, 'error');
+                        console.error('FileMaker integration error:', error);
+                    }
+                },
+                
+                // Function to format date for display
+                formatDate(date) {
+                    return date.toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    });
+                },
+                
+                // Function to format date for HTML input (YYYY-MM-DD)
+                formatDateForInput(date) {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                },
+                
+                // Function to show status messages
+                showStatusMessage(message, type) {
+                    this.statusMessage = message;
+                    this.statusType = type;
+                    this.showStatus = true;
+                    this.statusKey++; // Force re-render for transitions
+                    
+                    // Auto-hide after 5 seconds
+                    setTimeout(() => {
+                        this.showStatus = false;
+                    }, 5000);
+                },
+                
+                // Function to set default date range (7 days)
+                setDefaultRange() {
+                    const startDate = new Date();
+                    const endDate = new Date(new Date().setDate(startDate.getDate() + 7));
+                    this.dateRange = [startDate, endDate];
+                },
+
+                // Function to calculate duration in days
+                calculateDuration() {
+                    if (!this.dateRange || !this.dateRange[0] || !this.dateRange[1]) {
+                        return 0;
+                    }
+                    const start = this.dateRange[0];
+                    const end = this.dateRange[1];
+                    const diffTime = Math.abs(end - start);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    return diffDays;
+                },
+                
+                // Check if we're running in FileMaker
+                checkFileMakerConnection() {
+                    if (typeof FileMaker !== 'undefined' && typeof FileMaker.PerformScriptWithOption === 'function') {
+                        this.isFileMakerConnected = true;
+                        this.showStatusMessage('Connected to FileMaker', 'success');
+                        return true;
+                    } else {
+                        this.isFileMakerConnected = false;
+                        return false;
+                    }
+                },
+                
+                // Continuously check for FileMaker library injection
+                startFileMakerDetection() {
+                    // Check immediately
+                    if (this.checkFileMakerConnection()) {
+                        return;
+                    }
+                    
+                    // Set up interval to check for FileMaker library
+                    this.fileMakerCheckInterval = setInterval(() => {
+                        if (this.checkFileMakerConnection()) {
+                            clearInterval(this.fileMakerCheckInterval);
+                        }
+                    }, 1000); // Check every second
+                }
+            }
+        }).mount('#app');
+        
+        // Example of how FileMaker can call these functions
+        // In FileMaker, you would use: FMPerformJavaScript("receiveFromFileMaker('John Doe');")
+        // For single date: FMPerformJavaScript("receiveDateFromFileMaker('2024-01-15');")
+        // For date range: FMPerformJavaScript("receiveDateFromFileMaker('2024-01-01,2024-01-31');")
+    </script>
+</body>
+</html>
